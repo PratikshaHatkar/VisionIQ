@@ -1,0 +1,57 @@
+{
+    "Normal": {
+        "precision": 0.335,
+        "recall": 0.37640449438202245,
+        "f1-score": 0.3544973544973545,
+        "support": 178.0
+    },
+    "Fighting": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 21.0
+    },
+    "Robbery": {
+        "precision": 0.4330357142857143,
+        "recall": 0.3310580204778157,
+        "f1-score": 0.37524177949709864,
+        "support": 293.0
+    },
+    "Shoplifting": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1-score": 0.0,
+        "support": 20.0
+    },
+    "Burglary": {
+        "precision": 0.29385964912280704,
+        "recall": 0.4407894736842105,
+        "f1-score": 0.3526315789473684,
+        "support": 152.0
+    },
+    "RoadAccidents": {
+        "precision": 0.5074626865671642,
+        "recall": 0.9066666666666666,
+        "f1-score": 0.6507177033492823,
+        "support": 75.0
+    },
+    "Vandalism": {
+        "precision": 0.7142857142857143,
+        "recall": 0.08620689655172414,
+        "f1-score": 0.15384615384615385,
+        "support": 58.0
+    },
+    "accuracy": 0.38143036386449186,
+    "macro avg": {
+        "precision": 0.3262348234659143,
+        "recall": 0.30587507882320564,
+        "f1-score": 0.26956208144817967,
+        "support": 797.0
+    },
+    "weighted avg": {
+        "precision": 0.3897922256881929,
+        "recall": 0.38143036386449186,
+        "f1-score": 0.3568046112515082,
+        "support": 797.0
+    }
+}

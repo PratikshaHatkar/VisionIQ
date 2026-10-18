@@ -1,0 +1,85 @@
+# ==========================================
+# VisionIQ AI CCTV Surveillance - .gitignore
+# ==========================================
+
+# 1. Python Cache & Compilation Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+
+# 2. Virtual Environments & Anaconda
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+anaconda_projects/
+conda/
+
+# 3. Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+.virtual_documents/
+
+# 4. Environment Variables & Secrets
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+secrets.json
+
+# 5. Large Datasets & Raw Video Files
+DCSASS Dataset/
+data/
+dataset/
+videos/
+uploads/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+
+# 6. Model Weights & Checkpoints (Heavy Files >100MB)
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.onnx
+*.engine
+*.h5
+*.pb
+checkpoints/*.pth
+checkpoints/*.pt
+checkpoints/*.ckpt
+
+# 7. Logs & OS/IDE Temporary Files
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
