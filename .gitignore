@@ -24,6 +24,9 @@ wheels/
 .installed.cfg
 *.egg
 .pytest_cache/
+node_modules/
+frontend/node_modules/
+frontend/dist/
 
 # 2. Virtual Environments & Anaconda
 .venv/
@@ -42,24 +45,29 @@ conda/
 # 4. Environment Variables & Secrets
 .env
 .env.*
+!.env.example
 *.env
 *.pem
 *.key
 *.cert
 secrets.json
 
-# 5. Large Datasets & Raw Video Files
+# 5. Large Datasets, Uploaded Videos & Storage
 DCSASS Dataset/
 data/
 dataset/
 videos/
 uploads/
+storage/
 *.mp4
 *.avi
 *.mov
 *.mkv
 *.flv
 *.wmv
+*.db
+*.sqlite
+*.sqlite3
 
 # 6. Model Weights & Checkpoints (Heavy Files >100MB)
 *.pth
