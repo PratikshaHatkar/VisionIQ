@@ -24,6 +24,10 @@ from src.api.service import (
     ModelManager, probe_video_file, process_video_background
 )
 from src.api.nlp.service import execute_chat_query
+from src.api.live.router import live_router
+from src.api.live.storage import get_live_storage
+from src.api.live.stream_manager import get_stream_manager
+from src.api.live.inference_service import get_live_inference_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,11 +35,21 @@ async def lifespan(app: FastAPI):
     storage = get_storage()
     storage.initialize()
     try:
+        get_live_storage().initialize()
+    except Exception as e:
+        print(f"[Lifespan Warning] Could not initialize live storage: {e}")
+
+    try:
         ModelManager.get_instance().load_model()
     except Exception as e:
         print(f"[Lifespan Warning] Could not preload model at startup: {e}")
     yield
-    # Shutdown logic (if any)
+    # Shutdown logic: clean up live camera worker threads and inference loop
+    try:
+        get_stream_manager().shutdown_all()
+        get_live_inference_service().stop()
+    except Exception as e:
+        print(f"[Lifespan Shutdown Error]: {e}")
 
 app = FastAPI(
     title="VisionIQ Surveillance API",
@@ -412,3 +426,8 @@ def chat_query(request: ChatQueryRequest):
         retrieval_method=res["retrieval_method"],
         limitations=res["limitations"]
     )
+
+# -------------------------------------------------------------
+# 9. Live CCTV Surveillance Router
+# -------------------------------------------------------------
+app.include_router(live_router, prefix="/api/live", tags=["Live Surveillance"])

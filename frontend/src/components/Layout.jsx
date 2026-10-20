@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Video,
+  Cctv,
   ShieldAlert,
   Activity,
   MessageSquare,
@@ -46,6 +47,7 @@ export const Layout = ({ children }) => {
 
   const navLinks = [
     { to: '/', label: 'Overview', icon: LayoutDashboard },
+    { to: '/live', label: 'Live Surveillance', icon: Cctv },
     { to: '/analysis', label: 'Video Analysis', icon: Video },
     { to: '/events', label: 'Detected Events', icon: ShieldAlert },
     { to: '/chat', label: 'AI Assistant', icon: MessageSquare },

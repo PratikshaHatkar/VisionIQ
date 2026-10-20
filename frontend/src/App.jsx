@@ -6,6 +6,7 @@ import VideoAnalysisPage from './pages/VideoAnalysisPage';
 import EventsPage from './pages/EventsPage';
 import SystemStatusPage from './pages/SystemStatusPage';
 import ChatPage from './pages/ChatPage';
+import LiveSurveillancePage from './pages/LiveSurveillancePage';
 
 export function App() {
   return (
@@ -13,6 +14,7 @@ export function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<OverviewPage />} />
+          <Route path="/live" element={<LiveSurveillancePage />} />
           <Route path="/analysis" element={<VideoAnalysisPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/chat" element={<ChatPage />} />

@@ -20,6 +20,19 @@ export const getEvidenceUrl = (snapshotPath) => {
   return `${BASE_URL}${cleanPath}`;
 };
 
+// Helper to get live camera MJPEG stream URL
+export const getLiveStreamUrl = (cameraId) => {
+  if (!cameraId) return null;
+  return `${BASE_URL}/api/live/cameras/${cameraId}/stream`;
+};
+
+// Helper to get WebSocket URL for live notifications
+export const getWebSocketUrl = (ownerId = 'default_owner') => {
+  const wsProtocol = BASE_URL.startsWith('https') ? 'wss' : 'ws';
+  const cleanHost = BASE_URL.replace(/^https?:\/\//, '');
+  return `${wsProtocol}://${cleanHost}/api/live/ws?owner_id=${encodeURIComponent(ownerId)}`;
+};
+
 // API Services
 export const api = {
   // 1. Health & System Diagnostic
@@ -100,6 +113,74 @@ export const api = {
       activity: activity && activity !== 'ALL' ? activity : null,
       min_confidence: min_confidence || null,
       limit,
+    });
+    return res.data;
+  },
+
+  // 9. Live CCTV Surveillance APIs
+  async listCameras(ownerId) {
+    const params = ownerId ? { owner_id: ownerId } : {};
+    const res = await apiClient.get('/api/live/cameras', { params });
+    return res.data;
+  },
+
+  async registerCamera(cameraData) {
+    const res = await apiClient.post('/api/live/cameras', cameraData);
+    return res.data;
+  },
+
+  async updateCamera(cameraId, updates) {
+    const res = await apiClient.patch(`/api/live/cameras/${cameraId}`, updates);
+    return res.data;
+  },
+
+  async deleteCamera(cameraId) {
+    const res = await apiClient.delete(`/api/live/cameras/${cameraId}`);
+    return res.data;
+  },
+
+  async startCamera(cameraId) {
+    const res = await apiClient.post(`/api/live/cameras/${cameraId}/start`);
+    return res.data;
+  },
+
+  async stopCamera(cameraId) {
+    const res = await apiClient.post(`/api/live/cameras/${cameraId}/stop`);
+    return res.data;
+  },
+
+  async listLiveIncidents({ ownerId, cameraId, activityLabel, limit = 50 } = {}) {
+    const params = { limit };
+    if (ownerId) params.owner_id = ownerId;
+    if (cameraId) params.camera_id = cameraId;
+    if (activityLabel && activityLabel !== 'ALL') params.activity_label = activityLabel;
+    const res = await apiClient.get('/api/live/incidents', { params });
+    return res.data;
+  },
+
+  async acknowledgeLiveIncident(incidentId, ownerId) {
+    const params = ownerId ? { owner_id: ownerId } : {};
+    const res = await apiClient.patch(`/api/live/incidents/${incidentId}/acknowledge`, null, { params });
+    return res.data;
+  },
+
+  async listLiveNotifications({ ownerId, isRead, limit = 50 } = {}) {
+    const params = { limit };
+    if (ownerId) params.owner_id = ownerId;
+    if (isRead !== undefined && isRead !== null) params.is_read = isRead;
+    const res = await apiClient.get('/api/live/notifications', { params });
+    return res.data;
+  },
+
+  async markNotificationRead(notificationId, ownerId) {
+    const params = ownerId ? { owner_id: ownerId } : {};
+    const res = await apiClient.patch(`/api/live/notifications/${notificationId}/read`, null, { params });
+    return res.data;
+  },
+
+  async markAllNotificationsRead(ownerId) {
+    const res = await apiClient.patch('/api/live/notifications/read-all', null, {
+      params: { owner_id: ownerId },
     });
     return res.data;
   },
