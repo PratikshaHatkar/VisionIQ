@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
 import pymongo
+from sqlalchemy import text as sa_text
 
 from src.api.mongo import get_mongo_db, check_mongo_connection
 from src.api.database import SessionLocal, engine, Base
@@ -19,11 +20,27 @@ class LiveStorageRepository:
 
     def __init__(self):
         self._initialized = False
+        try:
+            self.initialize()
+        except Exception:
+            pass
 
     def initialize(self):
         # 1. Initialize SQLite tables for live surveillance models
         try:
             Base.metadata.create_all(bind=engine)
+            # Automatic schema migration for existing SQLite database
+            with engine.connect() as conn:
+                try:
+                    conn.execute(sa_text("ALTER TABLE live_incidents ADD COLUMN summary TEXT"))
+                    conn.commit()
+                except Exception:
+                    pass
+                try:
+                    conn.execute(sa_text("ALTER TABLE live_notifications ADD COLUMN summary TEXT"))
+                    conn.commit()
+                except Exception:
+                    pass
         except Exception as e:
             print(f"[LiveStorage] SQLite schema warning: {e}")
 
@@ -262,6 +279,7 @@ class LiveStorageRepository:
             "start_time": data.get("start_time") or now,
             "end_time": data.get("end_time") or now,
             "duration_seconds": round(float(data.get("duration_seconds", 0.0)), 2),
+            "summary": data.get("summary"),
             "evidence_snapshot": data.get("evidence_snapshot"),
             "evidence_clip": data.get("evidence_clip"),
             "is_acknowledged": bool(data.get("is_acknowledged", False)),
@@ -288,6 +306,7 @@ class LiveStorageRepository:
                     start_time=doc["start_time"],
                     end_time=doc["end_time"],
                     duration_seconds=doc["duration_seconds"],
+                    summary=doc.get("summary"),
                     evidence_snapshot=doc["evidence_snapshot"],
                     evidence_clip=doc["evidence_clip"],
                     is_acknowledged=doc["is_acknowledged"],
@@ -327,6 +346,7 @@ class LiveStorageRepository:
                         "start_time": inc.start_time,
                         "end_time": inc.end_time,
                         "duration_seconds": inc.duration_seconds,
+                        "summary": inc.summary,
                         "evidence_snapshot": inc.evidence_snapshot,
                         "evidence_clip": inc.evidence_clip,
                         "is_acknowledged": inc.is_acknowledged,
@@ -412,6 +432,7 @@ class LiveStorageRepository:
                         "start_time": inc.start_time,
                         "end_time": inc.end_time,
                         "duration_seconds": inc.duration_seconds,
+                        "summary": inc.summary,
                         "evidence_snapshot": inc.evidence_snapshot,
                         "evidence_clip": inc.evidence_clip,
                         "is_acknowledged": inc.is_acknowledged,
@@ -440,6 +461,7 @@ class LiveStorageRepository:
             "camera_name": data["camera_name"],
             "location": data.get("location"),
             "confidence": round(float(data["confidence"]), 4),
+            "summary": data.get("summary"),
             "evidence_snapshot": data.get("evidence_snapshot"),
             "is_read": bool(data.get("is_read", False)),
             "is_acknowledged": bool(data.get("is_acknowledged", False)),
@@ -464,6 +486,7 @@ class LiveStorageRepository:
                     camera_name=doc["camera_name"],
                     location=doc["location"],
                     confidence=doc["confidence"],
+                    summary=doc.get("summary"),
                     evidence_snapshot=doc["evidence_snapshot"],
                     is_read=doc["is_read"],
                     is_acknowledged=doc["is_acknowledged"],
@@ -536,6 +559,7 @@ class LiveStorageRepository:
                         "camera_name": n.camera_name,
                         "location": n.location,
                         "confidence": n.confidence,
+                        "summary": n.summary,
                         "evidence_snapshot": n.evidence_snapshot,
                         "is_read": n.is_read,
                         "is_acknowledged": n.is_acknowledged,

@@ -12,6 +12,7 @@ from src.config import (
     NORM_MEAN, NORM_STD, DEVICE, USE_AMP
 )
 from src.model import build_model
+from src.api.classifier import get_event_classifier
 
 def format_timestamp(seconds):
     mins = int(seconds // 60)
@@ -86,11 +87,18 @@ def detect_suspicious_events(video_path, model, threshold=0.55, window_sec=2.0, 
         with torch.no_grad():
             with autocast('cuda', enabled=USE_AMP and DEVICE.type == 'cuda'):
                 logits = model(clip_tensor)
+                raw_logits_np = logits.squeeze(0).cpu().float().numpy()
                 probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
                 
-        pred_idx = int(np.argmax(probs))
-        pred_class = CLASSES[pred_idx]
-        confidence = float(probs[pred_idx])
+        classifier = get_event_classifier()
+        class_result = classifier.classify(
+            frames=window_raw_frames,
+            logits=raw_logits_np,
+            probs=probs,
+            threshold=threshold
+        )
+        pred_class = class_result["predicted_class"]
+        confidence = class_result["confidence"]
         
         start_time = start_frame / fps
         end_time = end_frame / fps

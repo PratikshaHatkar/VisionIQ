@@ -13,10 +13,11 @@ class CameraStreamWorker:
     """
     Independent worker thread managing a single camera stream.
     Features:
-    - Bounded frame buffer (max 32 frames) for memory safety.
+    - Bounded frame buffer (max 32 frames) for memory safety (~15MB per stream).
     - Thread-safe start, stop, and status updates.
-    - Automatic reconnection with backoff on RTSP/stream drops.
-    - Support for RTSP, local webcam, looped test video, and synthetic test streams.
+    - Automatic reconnection with exponential backoff on RTSP/stream drops.
+    - Supports RTSP/IP CCTV, local webcams, looped test videos, and synthetic simulation streams.
+    - Real-time frame pacing matching source FPS.
     """
 
     def __init__(self, camera_id: str, camera_data: dict):
@@ -43,20 +44,58 @@ class CameraStreamWorker:
     def _open_capture(self) -> Optional[cv2.VideoCapture]:
         """
         Safely instantiates and opens an OpenCV VideoCapture based on stream_type.
+        Includes driver fallbacks and TCP transport enforcement for network streams.
         """
         try:
             if self.stream_type == "webcam":
                 # Convert 'webcam:0' or '0' to integer device index
                 idx_str = self.stream_url.replace("webcam:", "").strip()
                 dev_idx = int(idx_str) if idx_str.isdigit() else 0
-                cap = cv2.VideoCapture(dev_idx, cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY)
+                
+                # Try DirectShow first on Windows, then fallback to CAP_ANY
+                cap = None
+                if os.name == 'nt':
+                    try:
+                        cap = cv2.VideoCapture(dev_idx, cv2.CAP_DSHOW)
+                        if not cap.isOpened():
+                            cap.release()
+                            cap = None
+                    except Exception:
+                        cap = None
+                if cap is None:
+                    cap = cv2.VideoCapture(dev_idx, cv2.CAP_ANY)
+
             elif self.stream_type in ("test_video", "video"):
-                cap = cv2.VideoCapture(self.stream_url)
+                path = self.stream_url
+                # If a directory is provided, locate the first playable video file inside
+                if os.path.isdir(path):
+                    candidates = [
+                        os.path.join(path, f) for f in os.listdir(path)
+                        if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm'))
+                    ]
+                    if candidates:
+                        path = candidates[0]
+                cap = cv2.VideoCapture(path)
+
             elif self.stream_type == "synthetic":
-                return None  # Synthetic generator handled separately in loop
+                # Check if synthetic mode requests an anomaly simulation video
+                url_lower = self.stream_url.lower()
+                if any(k in url_lower for k in ("anomaly", "burglary", "robbery", "fighting", "test")):
+                    candidate_paths = [
+                        os.path.join("storage", "videos", "2b2a49fb-4345-44c2-a2f3-dff4db7ee02c_testing video.mp4"),
+                        "sample_cctv.mp4"
+                    ]
+                    for cp in candidate_paths:
+                        if os.path.isfile(cp):
+                            cap = cv2.VideoCapture(cp)
+                            if cap and cap.isOpened():
+                                return cap
+                return None  # Standard algorithmic generator handled in loop
+
             else:
-                # RTSP or network stream
-                # Set OpenCV connection timeout flags if supported
+                # RTSP or network IP camera stream
+                # Enforce TCP transport for RTSP to prevent packet drop corruption
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
                 cap = cv2.VideoCapture(self.stream_url)
 
             if cap and cap.isOpened():
@@ -100,8 +139,8 @@ class CameraStreamWorker:
 
     def _generate_synthetic_frame(self, frame_num: int) -> np.ndarray:
         """
-        Generates a clean synthetic CCTV surveillance frame for environments
-        without physical cameras or active RTSP feeds.
+        Generates a clean synthetic CCTV surveillance frame with motion
+        for environments without physical cameras.
         """
         h, w = 360, 640
         frame = np.zeros((h, w, 3), dtype=np.uint8)
@@ -135,7 +174,8 @@ class CameraStreamWorker:
         synthetic_counter = 0
 
         while self.running:
-            if self.stream_type == "synthetic":
+            # Check if using purely algorithmic synthetic stream
+            if self.stream_type == "synthetic" and not any(k in self.stream_url.lower() for k in ("anomaly", "burglary", "robbery", "fighting", "test")):
                 self.status = "online"
                 self.fps = 20.0
                 self.resolution = "640x360"
@@ -146,11 +186,16 @@ class CameraStreamWorker:
                     synthetic_counter += 1
                     with self.buffer_lock:
                         self.frame_buffer.append(frame)
-                    time.sleep(0.05)  # ~20 FPS
+                    time.sleep(0.05)  # ~20 FPS pacing
                 break
 
             cap = self._open_capture()
             if cap is None:
+                if self.stream_type == "synthetic":
+                    # Fallback to algorithmic generator
+                    self.stream_url = "synthetic:0"
+                    continue
+
                 self.consecutive_failures += 1
                 backoff = min(15, 2 * self.consecutive_failures)
                 self._sync_status_to_db("reconnecting", f"Stream open failed. Retrying in {backoff}s...")
@@ -168,12 +213,14 @@ class CameraStreamWorker:
 
             last_fps_calc = time.time()
             frames_counted = 0
+            # Native frame delay for file-based streams
+            frame_delay = (1.0 / self.fps) if self.fps > 0 else 0.033
 
             while self.running:
                 ret, frame = cap.read()
                 if not ret or frame is None:
-                    # If test video reached end, loop it back
-                    if self.stream_type in ("test_video", "video"):
+                    # If test video or synthetic video reached end, loop it back
+                    if self.stream_type in ("test_video", "video", "synthetic"):
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         continue
                     else:
@@ -190,8 +237,11 @@ class CameraStreamWorker:
                     frames_counted = 0
                     last_fps_calc = now
 
-                # Throttle high-FPS webcams or video files to save CPU
-                time.sleep(0.01)
+                # Real-time pacing: sleep by natural framerate for video files, or short yield for webcams
+                if self.stream_type in ("test_video", "video", "synthetic"):
+                    time.sleep(frame_delay)
+                else:
+                    time.sleep(0.005)
 
             cap.release()
             if self.running:

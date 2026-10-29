@@ -266,3 +266,232 @@ def test_10_invalid_stream_type_rejection():
     })
     assert res.status_code == 400
     assert "Unsupported stream_type" in res.json()["detail"]
+
+
+def test_11_incident_and_notification_summary_persistence():
+    storage = get_live_storage()
+    cam_id = f"cam_sum_{uuid.uuid4().hex[:8]}"
+    owner = f"owner_sum_{uuid.uuid4().hex[:8]}"
+    summary_text = "Possible Robbery activity detected at 14:32:10 on Vault Cam (Basement Sector B) with 94% confidence. Immediate review required."
+
+    inc = storage.create_incident({
+        "camera_id": cam_id,
+        "camera_name": "Vault Cam",
+        "location": "Basement Sector B",
+        "owner_id": owner,
+        "activity_label": "Robbery",
+        "confidence": 0.94,
+        "duration_seconds": 2.5,
+        "summary": summary_text,
+        "is_acknowledged": False
+    })
+    assert inc["summary"] == summary_text
+
+    notif = storage.create_notification({
+        "camera_id": cam_id,
+        "incident_id": inc["id"],
+        "owner_id": owner,
+        "activity_label": "Robbery",
+        "camera_name": "Vault Cam",
+        "location": "Basement Sector B",
+        "confidence": 0.94,
+        "summary": summary_text,
+        "is_read": False
+    })
+    assert notif["summary"] == summary_text
+
+    # Verify via API endpoints
+    inc_res = client.get(f"/api/live/incidents?owner_id={owner}").json()
+    assert len(inc_res["incidents"]) >= 1
+    found_inc = [i for i in inc_res["incidents"] if i["id"] == inc["id"]][0]
+    assert found_inc["summary"] == summary_text
+
+    notif_res = client.get(f"/api/live/notifications?owner_id={owner}").json()
+    assert len(notif_res["notifications"]) >= 1
+    found_notif = [n for n in notif_res["notifications"] if n["id"] == notif["id"]][0]
+    assert found_notif["summary"] == summary_text
+
+def test_12_incident_summary_generation_templates():
+    from src.api.live.summarizer import generate_incident_summary
+
+    # Test initial detection summary
+    summary_initial = generate_incident_summary(
+        activity_label="Fighting",
+        camera_name="Main Gate Cam",
+        location="Gate A",
+        confidence=0.887,
+        timestamp="2026-10-22T15:30:45Z",
+        duration_seconds=1.5
+    )
+    assert "fighting" in summary_initial.lower()
+    assert "Main Gate Cam" in summary_initial
+    assert "Gate A" in summary_initial
+    assert "88.7%" in summary_initial
+    assert "15:30:45" in summary_initial
+
+    # Test ongoing sustained detection summary
+    summary_sustained = generate_incident_summary(
+        activity_label="Burglary",
+        camera_name="North Perimeter",
+        location="Zone 3",
+        confidence=0.912,
+        timestamp="2026-10-22T21:10:00Z",
+        duration_seconds=12.5
+    )
+    assert "burglary" in summary_sustained.lower()
+    assert "North Perimeter" in summary_sustained
+    assert "12.5s" in summary_sustained
+    assert "91.2%" in summary_sustained
+
+    # Test graceful fallback with missing fields
+    summary_fallback = generate_incident_summary(
+        activity_label="Vandalism",
+        camera_name="",
+        location=None,
+        confidence=0.75,
+        timestamp=None
+    )
+    assert "vandalism" in summary_fallback.lower()
+    assert "75.0%" in summary_fallback
+    assert len(summary_fallback) > 10
+
+def test_13_multi_source_workers_and_resilience():
+    # 1. Webcam worker config check
+    cam_webcam = CameraStreamWorker(
+        camera_id="test_wc",
+        camera_data={"name": "Webcam 1", "stream_type": "webcam", "stream_url": "webcam:0"}
+    )
+    assert cam_webcam.stream_type == "webcam"
+
+    # 2. RTSP worker config check
+    cam_rtsp = CameraStreamWorker(
+        camera_id="test_rtsp",
+        camera_data={"name": "RTSP 1", "stream_type": "rtsp", "stream_url": "rtsp://192.168.1.100:554/stream"}
+    )
+    assert cam_rtsp.stream_type == "rtsp"
+    # Calling _open_capture triggers the transport setup
+    from unittest.mock import patch
+    with patch("cv2.VideoCapture") as mock_vc:
+        mock_vc.return_value.isOpened.return_value = False
+        cam_rtsp._open_capture()
+    assert os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS") == "rtsp_transport;tcp"
+
+    # 3. Test video directory resolution
+    sample_video = "storage/videos/2b2a49fb-4345-44c2-a2f3-dff4db7ee02c_testing video.mp4"
+    cam_test = CameraStreamWorker(
+        camera_id="test_vid",
+        camera_data={"name": "Test Video 1", "stream_type": "test_video", "stream_url": sample_video}
+    )
+    assert cam_test.stream_type == "test_video"
+
+    # 4. Synthetic worker
+    cam_syn = CameraStreamWorker(
+        camera_id="test_syn",
+        camera_data={"name": "Synthetic 1", "stream_type": "synthetic", "stream_url": "synthetic:0"}
+    )
+    cam_syn.start()
+    time.sleep(0.3)
+    frame = cam_syn.get_latest_frame()
+    cam_syn.stop()
+    assert frame is not None
+    assert frame.shape == (360, 640, 3)
+
+def test_14_decoupled_snapshot_failure_resilience():
+    from src.api.live.inference_service import get_live_inference_service
+    from src.api.live.storage import get_live_storage, utc_now
+    from src.api.live.summarizer import generate_incident_summary
+
+    infer_svc = get_live_inference_service()
+    storage = get_live_storage()
+
+    cam_id = f"snap_fail_{uuid.uuid4().hex[:8]}"
+    owner = f"owner_snap_{uuid.uuid4().hex[:8]}"
+    incident_id = str(uuid.uuid4())
+    now = utc_now()
+
+    # Verify that even when snapshot saving is bypassed or fails,
+    # incident and notification records are successfully created with snapshot=None
+    summary = generate_incident_summary(
+        activity_label="Fighting",
+        camera_name="Resilient Cam",
+        location="Sector 7",
+        confidence=0.88,
+        timestamp=now
+    )
+
+    incident_data = {
+        "id": incident_id,
+        "incident_id": incident_id,
+        "camera_id": cam_id,
+        "camera_name": "Resilient Cam",
+        "location": "Sector 7",
+        "owner_id": owner,
+        "activity_label": "Fighting",
+        "confidence": 0.88,
+        "summary": summary,
+        "start_time": now,
+        "end_time": now,
+        "duration_seconds": 1.5,
+        "evidence_snapshot": None,
+        "is_acknowledged": False,
+        "created_at": now
+    }
+    storage.create_incident(incident_data)
+
+    notif_data = {
+        "camera_id": cam_id,
+        "incident_id": incident_id,
+        "owner_id": owner,
+        "activity_label": "Fighting",
+        "camera_name": "Resilient Cam",
+        "location": "Sector 7",
+        "confidence": 0.88,
+        "summary": summary,
+        "evidence_snapshot": None,
+        "created_at": now
+    }
+    storage.create_notification(notif_data)
+
+    incidents = storage.list_incidents(camera_id=cam_id)
+    assert len(incidents) == 1
+    assert incidents[0]["activity_label"] == "Fighting"
+    assert incidents[0]["evidence_snapshot"] is None
+    assert incidents[0]["summary"] is not None
+    assert "fighting" in incidents[0]["summary"].lower()
+
+    total, unread, notifs = storage.list_notifications(owner_id=owner)
+    assert total >= 1
+    assert notifs[0]["evidence_snapshot"] is None
+    assert notifs[0]["summary"] is not None
+
+def test_15_websocket_alert_broadcast_with_summary():
+    owner = f"ws_alert_{uuid.uuid4().hex[:8]}"
+    broker = get_notification_broker()
+
+    with client.websocket_connect(f"/api/live/ws?owner_id={owner}") as websocket:
+        time.sleep(0.1)
+
+        test_notif = {
+            "camera_id": "cam_test_123",
+            "incident_id": "inc_test_123",
+            "owner_id": owner,
+            "activity_label": "Burglary",
+            "camera_name": "Front Gate",
+            "location": "North Zone",
+            "confidence": 0.92,
+            "summary": "Possible burglary activity detected at 10:15:00 on Front Gate (North Zone) with 92% confidence.",
+            "evidence_snapshot": None,
+            "created_at": "2026-10-22T23:00:00Z"
+        }
+
+        # Broadcast via broker
+        broker.broadcast_incident_sync(test_notif)
+
+        data = websocket.receive_text()
+        msg = json.loads(data)
+        assert msg["type"] == "NEW_INCIDENT"
+        notif = msg["notification"]
+        assert notif["activity_label"] == "Burglary"
+        assert notif["confidence"] == 0.92
+        assert "92%" in notif["summary"]
+        assert "burglary" in notif["summary"].lower()

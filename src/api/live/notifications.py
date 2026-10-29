@@ -11,6 +11,7 @@ class NotificationBroker:
     """
     Manages in-memory WebSocket connections and asynchronous dispatch of real-time alerts.
     Scoped by owner_id for owner-based authorization.
+    Thread-safe and loop-safe when called from background inference threads.
     """
     _instance = None
     _lock = threading.Lock()
@@ -19,6 +20,7 @@ class NotificationBroker:
         # Maps owner_id -> list of active WebSocket connections
         self.active_connections: Dict[str, List[WebSocket]] = {}
         self.conn_lock = threading.Lock()
+        self.server_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @classmethod
     def get_instance(cls):
@@ -29,6 +31,11 @@ class NotificationBroker:
 
     async def connect(self, owner_id: str, websocket: WebSocket):
         await websocket.accept()
+        try:
+            self.server_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
         with self.conn_lock:
             if owner_id not in self.active_connections:
                 self.active_connections[owner_id] = []
@@ -60,6 +67,12 @@ class NotificationBroker:
             created_notif = notif_data
 
         # 2. Prepare payload
+        created_at_val = created_notif.get("created_at") or datetime.now(timezone.utc)
+        if isinstance(created_at_val, datetime):
+            created_at_str = created_at_val.isoformat()
+        else:
+            created_at_str = str(created_at_val)
+
         payload = {
             "type": "NEW_INCIDENT",
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -71,10 +84,11 @@ class NotificationBroker:
                 "location": created_notif.get("location"),
                 "activity_label": created_notif.get("activity_label"),
                 "confidence": created_notif.get("confidence"),
+                "summary": created_notif.get("summary"),
                 "evidence_snapshot": created_notif.get("evidence_snapshot"),
                 "is_read": False,
                 "is_acknowledged": False,
-                "created_at": created_notif.get("created_at").isoformat() if isinstance(created_notif.get("created_at"), datetime) else str(created_notif.get("created_at"))
+                "created_at": created_at_str
             }
         }
 
@@ -87,21 +101,36 @@ class NotificationBroker:
 
         message_str = json.dumps(payload)
 
-        # Run async dispatch in background thread event loop
-        def _dispatch():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            async def _send_all():
-                for ws in connections:
-                    try:
-                        await ws.send_text(message_str)
-                    except Exception as err:
-                        print(f"[NotificationBroker] WS send failed: {err}")
-            loop.run_until_complete(_send_all())
-            loop.close()
+        async def _send_all():
+            dead_sockets = []
+            for ws in connections:
+                try:
+                    await ws.send_text(message_str)
+                except Exception as err:
+                    print(f"[NotificationBroker] WS send failed: {err}")
+                    dead_sockets.append(ws)
+            if dead_sockets:
+                with self.conn_lock:
+                    for ds in dead_sockets:
+                        if owner_id in self.active_connections and ds in self.active_connections[owner_id]:
+                            self.active_connections[owner_id].remove(ds)
 
-        dispatch_thread = threading.Thread(target=_dispatch, daemon=True)
-        dispatch_thread.start()
+        # Dispatch via main server loop if active
+        if self.server_loop and self.server_loop.is_running():
+            asyncio.run_coroutine_threadsafe(_send_all(), self.server_loop)
+        else:
+            # Fallback for background thread / sync test harness
+            def _dispatch():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(_send_all())
+                    loop.close()
+                except Exception as e:
+                    print(f"[NotificationBroker] Dispatch worker error: {e}")
+
+            dispatch_thread = threading.Thread(target=_dispatch, daemon=True)
+            dispatch_thread.start()
 
 def get_notification_broker() -> NotificationBroker:
     return NotificationBroker.get_instance()

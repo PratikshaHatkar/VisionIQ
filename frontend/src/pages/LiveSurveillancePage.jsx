@@ -99,6 +99,7 @@ export const LiveSurveillancePage = () => {
                 location: notif.location,
                 activity_label: notif.activity_label,
                 confidence: notif.confidence,
+                summary: notif.summary,
                 duration_seconds: 1.5,
                 evidence_snapshot: notif.evidence_snapshot,
                 is_acknowledged: false,
@@ -218,6 +219,14 @@ export const LiveSurveillancePage = () => {
               <p className="text-xs text-slate-300 mt-0.5">
                 Location: {liveToast.location || 'Zone'} • Confidence: {(liveToast.confidence * 100).toFixed(1)}%
               </p>
+
+              {/* Grounded Incident Summary */}
+              {liveToast.summary && (
+                <p className="text-xs text-rose-200 mt-2 bg-black/40 p-2.5 rounded-xl border border-rose-500/20 leading-relaxed font-sans">
+                  {liveToast.summary}
+                </p>
+              )}
+
               {liveToast.evidence_snapshot && (
                 <div className="mt-2.5 flex items-center gap-2">
                   <button
@@ -521,7 +530,7 @@ export const LiveSurveillancePage = () => {
                   <ShieldAlert className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                   <p className="text-xs font-medium">No live incidents detected</p>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    When suspicious activity occurs on monitored cameras, evidence will appear here in real-time.
+                    When suspicious activity occurs on monitored cameras, evidence and incident summaries will appear here in real-time.
                   </p>
                 </div>
               ) : (
@@ -554,6 +563,13 @@ export const LiveSurveillancePage = () => {
                         <span>Duration: {inc.duration_seconds.toFixed(1)}s</span>
                       )}
                     </div>
+
+                    {/* Short Grounded Incident Summary */}
+                    {inc.summary && (
+                      <p className="text-xs text-slate-300 mt-2 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80 leading-relaxed font-sans">
+                        {inc.summary}
+                      </p>
+                    )}
 
                     {/* Snapshot & Actions */}
                     <div className="mt-3 flex items-center justify-between pt-2.5 border-t border-slate-800">
@@ -623,6 +639,11 @@ export const LiveSurveillancePage = () => {
                     <p className="text-slate-300 text-[11px] mt-0.5">
                       Camera: {n.camera_name} ({n.location || 'Zone'}) • {(n.confidence * 100).toFixed(0)}% confidence
                     </p>
+                    {n.summary && (
+                      <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed bg-slate-900/40 p-2 rounded-lg border border-slate-800/60">
+                        {n.summary}
+                      </p>
+                    )}
                   </div>
                 ))
               )}

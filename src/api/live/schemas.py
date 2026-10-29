@@ -67,6 +67,7 @@ class LiveIncidentResponse(BaseModel):
     start_time: datetime
     end_time: datetime
     duration_seconds: float
+    summary: Optional[str] = None
     evidence_snapshot: Optional[str] = None
     evidence_clip: Optional[str] = None
     is_acknowledged: bool
@@ -87,6 +88,7 @@ class LiveNotificationResponse(BaseModel):
     camera_name: str
     location: Optional[str] = None
     confidence: float
+    summary: Optional[str] = None
     evidence_snapshot: Optional[str] = None
     is_read: bool
     is_acknowledged: bool

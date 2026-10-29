@@ -18,6 +18,7 @@ from src.model import build_model
 from src.api.database import SessionLocal
 from src.api.models import Video, Event
 from src.api.storage import get_storage
+from src.api.classifier import get_event_classifier
 
 def format_hhmmss(seconds: float) -> str:
     """
@@ -194,11 +195,19 @@ def analyze_video(
             with torch.no_grad():
                 with autocast('cuda', enabled=USE_AMP and model_mgr.device.type == "cuda"):
                     logits = model(clip_tensor)
+                    raw_logits_np = logits.squeeze(0).cpu().float().numpy()
                     probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
 
-            pred_idx = int(np.argmax(probs))
-            pred_class = CLASSES[pred_idx]
-            confidence = float(probs[pred_idx])
+            classifier = get_event_classifier()
+            class_result = classifier.classify(
+                frames=window_raw_frames,
+                logits=raw_logits_np,
+                probs=probs,
+                threshold=threshold
+            )
+            pred_class = class_result["predicted_class"]
+            confidence = class_result["confidence"]
+            is_suspicious = class_result["is_suspicious"]
             start_time = start_f / fps
             end_time = end_f / fps
 
@@ -209,7 +218,7 @@ def analyze_video(
                 "end_frame": end_f,
                 "predicted_class": pred_class,
                 "confidence": confidence,
-                "is_suspicious": (pred_class != "Normal" and confidence >= threshold)
+                "is_suspicious": is_suspicious
             })
 
     # Merge consecutive/overlapping windows of the same activity
